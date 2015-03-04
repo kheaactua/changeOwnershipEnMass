@@ -79,7 +79,7 @@ def loadFiles(con, fname, hostname):
 		#print("File: %s, mode: "%(f))
 		mode = os.stat(f)
 		#print("File: %s, uid=%d, gid=%d "%(f, mode[ST_UID], mode[ST_GID]))
-		cur.execute("INSERT INTO files (id, host, old_uid, old_gid, file) VALUES('%s', %d, %d, %d, '%s')"%(genKey(f), host_ids[hostname], mode[ST_UID], mode[ST_GID], f))
+		cur.execute("INSERT INTO files (id, host, old_uid, old_gid, file) VALUES('%s', %d, %d, %d, ?)"%(genKey(f), host_ids[hostname], mode[ST_UID], mode[ST_GID]), f)
 
 		con.commit();
 		i+=1
@@ -153,7 +153,7 @@ def changeFilePerms(con, perm_map, hostname, dryrun):
 		print("[UID:%d=>%d,GID:%d=>%d] chown %d:%d %s"%(old_uid,new_uid, old_gid,new_gid, new_uid,new_gid, f))
 		if dryrun is False:
 			os.lchown(f, new_uid, new_gid)
-			cur.execute("UPDATE files SET new_uid=%d, new_gid=%d, changed='%d'"%(new_uid, new_gid, 1));
+			cur.execute("UPDATE files SET new_uid=%d, new_gid=%d, changed=?"%(new_uid, new_gid), 1);
 
 	if dryrun is False:
 		con.commit();
