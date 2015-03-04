@@ -78,11 +78,11 @@ def loadFiles(con, fname, hostname):
 
 		#print("File: %s, mode: "%(f))
 		mode = os.stat(f)
-		#print("File: %s, uid=%d, gid=%d "%(f, mode[ST_UID], mode[ST_GID]))
+		print("File: %s, uid=%d, gid=%d "%(f, mode[ST_UID], mode[ST_GID]))
 		cur.execute("INSERT INTO files (id, host, old_uid, old_gid, file) VALUES(?, ?, ?, ?, ?)", (genKey(f), host_ids[hostname], mode[ST_UID], mode[ST_GID], f))
 
-		con.commit();
 		i+=1
+	con.commit();
 
 def loadMap(file_map):
 	rem = re.compile(r"(g|u):(\d+)=>(\d+)");
