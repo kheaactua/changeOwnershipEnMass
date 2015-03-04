@@ -72,7 +72,7 @@ def loadFiles(con, fname, hostname):
 		#	f="/%s"%f
 
 		# First, check to see if it's in the DB
-		cur.execute("SELECT file FROM files WHERE file='%s'"%f);
+		cur.execute("SELECT file FROM files WHERE file=?", (f));
 		if len(cur.fetchall()) == 1:
 			continue;
 
