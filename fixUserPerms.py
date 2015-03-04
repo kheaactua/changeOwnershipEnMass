@@ -57,19 +57,19 @@ def loadFiles(con, fname, hostname):
 
 	for f in fp:
 		f=f.strip()
-		if i == 0:
-			base = f
-			i+=1
-			continue
+		#if i == 0:
+		#	base = f
+		#	i+=1
+		#	continue
 
 		if os.path.isfile(f) is False:
 			continue
 
-		# Strip base
-		f = re.sub(r"^%s"%base, "", f);
-		# Ensure there's a / at the front
-		if f[0] is not '/':
-			f="/%s"%f
+		## Strip base
+		#f = re.sub(r"^%s"%base, "", f);
+		## Ensure there's a / at the front
+		#if f[0] is not '/':
+		#	f="/%s"%f
 
 		# First, check to see if it's in the DB
 		cur.execute("SELECT file FROM files WHERE file='%s'"%f);
@@ -182,8 +182,7 @@ Steps, first use the script to load the files with -g.  Then use \
 it to actually perform the changes (-m and -c) \
  \
 	-g <file of files> \
-		Load lsit of files into DB, file is a list of files.  First line should be the \"base directory\" \
-		For example, for /pool0/backups/dena/data/file, first line in file should be /pool0/backups/dena/ \
+		Load list of files into DB, file is a list of files. \
  \
 	-v \
 		verbose \
