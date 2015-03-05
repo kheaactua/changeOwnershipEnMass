@@ -148,9 +148,12 @@ def changeFilePerms(con, perm_map, hostname, dryrun, verbose):
 		# Double check that the old_uid and old_gid are right, just as a further check
 		mode = os.stat(f)
 
+		if verbose:
+			print("[Debug]: {%d,%d} => {%d,%d} => {%d,%d} %s"%(old_uid,old_gid, mode[ST_UID],mode[ST_GID], new_uid,new_gid, f))
+
 		# Check to see if it was manually done
 		if mode[ST_UID] == new_uid and mode[ST_GID] == new_gid:
-			print("[Notice]: Seems that %s was manually modified"%(f))
+			print("[Notice]: Seems that %s was manually modified. {%d,%d} => {%d,%d}"%(f, old_uid,old_gid, new_uid,new_gid))
 			cur.execute("UPDATE files SET changed='1'");
 			continue;
 
