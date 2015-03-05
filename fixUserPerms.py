@@ -118,9 +118,13 @@ def changeFilePerms(con, perm_map, hostname, dryrun, verbose):
 	# Cache host map
 	host_ids = getHostCache(con)
 
-	#print(perm_map)
-
 	cur = con.cursor()
+
+	# Maybe this will improve speed
+	cur.execute("PRAGMA synchronous = OFF")
+	cur.execute("PRAGMA journal_mode = %s" %('OFF'))
+	# Not really sure of the consequences of this.
+
 	cur.execute("SELECT id,file,old_uid,old_gid FROM files WHERE host='%s' AND changed='0'"%(host_ids[hostname]));
 	#print("SELECT id,file,old_uid,old_gid FROM files WHERE host='%s' AND changed='0'"%(host_ids[hostname]));
 	rows = cur.fetchall()
