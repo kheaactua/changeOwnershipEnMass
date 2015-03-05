@@ -114,7 +114,7 @@ def newId(pmap, oldId):
 
 	return None
 
-def changeFilePerms(con, perm_map, hostname, dryrun):
+def changeFilePerms(con, perm_map, hostname, dryrun, verbose):
 	# Cache host map
 	host_ids = getHostCache(con)
 
@@ -150,10 +150,20 @@ def changeFilePerms(con, perm_map, hostname, dryrun):
 		new_gid = perm_map['group'][str(old_gid)];
 
 		# Doing well if we got here
-		print("[UID:%d=>%d,GID:%d=>%d] chown %d:%d %s"%(old_uid,new_uid, old_gid,new_gid, new_uid,new_gid, f))
+		if verbose:
+			print("[UID:%d=>%d,GID:%d=>%d] chown %d:%d %s"%(old_uid,new_uid, old_gid,new_gid, new_uid,new_gid, f))
 		if dryrun is False:
-			os.lchown(f, new_uid, new_gid)
-			cur.execute("UPDATE files SET new_uid=%d, new_gid=%d, changed='1'"%(new_uid, new_gid));
+			try:
+				os.lchown(f, new_uid, new_gid)
+				cur.execute("UPDATE files SET new_uid=%d, new_gid=%d, changed='1'"%(new_uid, new_gid));
+			except Exception as err:
+				print("Exception thrown on %s\n"%f, err)
+				print("\nAttempting to commit");
+
+				con.commit()
+				print("Exiting...");
+				sys.exit(0)
+			
 
 	if dryrun is False:
 		con.commit();
@@ -206,6 +216,7 @@ it to actually perform the changes (-m and -c) \
 
 	file_db = 'files.db'
 	file_map = 'map.txt'
+	verbose = 0
 	perm_map = {}
 	hostname = socket.gethostname()
 	for o,a in opts:
@@ -215,6 +226,8 @@ it to actually perform the changes (-m and -c) \
 			perm_map = loadMap(a);
 		elif o == "-h":
 			hostname = a;
+		elif o == "-v":
+			verbose = verbose+1;
 		#else:
 		#	assert False, "unhandled option %s"%(o)
 
@@ -240,9 +253,9 @@ it to actually perform the changes (-m and -c) \
 		if o == "-g":
 			loadFiles(con, a, hostname);
 		elif o == "-c":
-			changeFilePerms(con=con, perm_map=perm_map, hostname=hostname, dryrun=True)
+			changeFilePerms(con=con, perm_map=perm_map, hostname=hostname, dryrun=True, verbose=verbose)
 		elif o == "-C":
-			changeFilePerms(con=con, perm_map=perm_map, hostname=hostname, dryrun=False)
+			changeFilePerms(con=con, perm_map=perm_map, hostname=hostname, dryrun=False, verbose=verbose)
 		#else:
 		#	assert False, "unhandled option"
 
