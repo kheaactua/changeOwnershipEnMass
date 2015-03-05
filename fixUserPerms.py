@@ -29,14 +29,22 @@ def getHostCache(con):
 	#print(host_ids)
 	return host_ids
 
-def loadFiles(con, fname, hostname):
+def loadFiles(con, fname, hostname, verbose, debug):
 	""" Iterate through this file, and insert them into the db """
+
+	if debug:
+		print("Using debug mode, only operating on small chunk of files");
+		
+
 	fp = open(fname, 'r')
 
 	i = 0
 	base='';
 
 	cur = con.cursor()
+
+	#
+	#
 	# Put this in an init function
 	cur.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='hosts'");
 	if len(cur.fetchall()) < 1:
@@ -46,11 +54,15 @@ def loadFiles(con, fname, hostname):
 		cur.execute("INSERT INTO hosts (id, hostname) VALUES(3, 'sahand')")
 		cur.execute("INSERT INTO hosts (id, hostname) VALUES(4, 'sabalan')")
 		con.commit();
-
 	cur.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='files'");
 	if len(cur.fetchall()) < 1:
 		cur.execute("CREATE TABLE files(id text PRIMARY KEY, Host INT, old_uid INT, old_gid INT, new_uid INT, new_gid INT, file TEXT, changed char(1) default '0')")
 		con.commit();
+
+	# /Put this in an init function
+	#
+	#
+
 
 	# Cache host map
 	host_ids = getHostCache(con)
@@ -71,17 +83,23 @@ def loadFiles(con, fname, hostname):
 		#if f[0] is not '/':
 		#	f="/%s"%f
 
-		# First, check to see if it's in the DB
-		cur.execute("SELECT file FROM files WHERE file=?", (f,));
-		if len(cur.fetchall()) == 1:
-			continue;
+		# Don't first check to see if the file exists, this just slows eveyrthing
+		# down.  Rely on the insert failing instead.
+		# The primary key is on the ID.  I don't like relying on this as it means
+		# IDs must always be generated the same way.  But right now the script is
+		# taking 8+ hours to run, so something must be done.
 
 		#print("File: %s, mode: "%(f))
 		mode = os.stat(f)
-		#print("File: %s, uid=%d, gid=%d "%(f, mode[ST_UID], mode[ST_GID]))
-		cur.execute("INSERT INTO files (id, host, old_uid, old_gid, file) VALUES(?, ?, ?, ?, ?)", (genKey(f), host_ids[hostname], mode[ST_UID], mode[ST_GID], f))
+		if verbose > 1 or debug:
+			print("uid=%d, gid=%d, file=%s"%(mode[ST_UID], mode[ST_GID], f))
+		cur.execute("INSERT OR IGNORE INTO files (id, host, old_uid, old_gid, file) VALUES(?, ?, ?, ?, ?)", (genKey(f), host_ids[hostname], mode[ST_UID], mode[ST_GID], f))
 
 		i+=1
+		if verbose and i%5000==0:
+			print("Inserted %d files"%i)
+		if debug and i>20:
+			break;
 	con.commit();
 
 def loadMap(file_map):
@@ -106,15 +124,7 @@ def loadMap(file_map):
 
 	return {'user': map_user, 'group': map_group}
 
-def newId(pmap, oldId):
-	""" Probably a WAY better way to do this """
-	for p in pmap:
-		if p['old_id'] == oldId:
-			return p['new_id']
-
-	return None
-
-def changeFilePerms(con, perm_map, hostname, dryrun, verbose):
+def changeFilePerms(con, perm_map, hostname, dryrun, verbose, debug):
 	# Cache host map
 	host_ids = getHostCache(con)
 
@@ -129,7 +139,7 @@ def changeFilePerms(con, perm_map, hostname, dryrun, verbose):
 	mids=[];
 	cids=[];
 
-	cur.execute("SELECT id,file,old_uid,old_gid FROM files WHERE host='%s' AND changed='0'"%(host_ids[hostname]));
+	cur.execute("SELECT id,file,old_uid,old_gid FROM files WHERE host=? AND changed='1'%s"%(' LIMIT 20' if debug else ''), (host_ids[hostname],1));
 	#print("SELECT id,file,old_uid,old_gid FROM files WHERE host='%s' AND changed='0'"%(host_ids[hostname]));
 	rows = cur.fetchall()
 	i=0;
@@ -153,7 +163,7 @@ def changeFilePerms(con, perm_map, hostname, dryrun, verbose):
 		try:
 			if os.path.isfile(f):
 				mode = os.stat(f)
-			else
+			else:
 				print("[Warning]: File doesn't exist: %s"%f)
 				continue;
 		except OSError as err:
@@ -178,7 +188,7 @@ def changeFilePerms(con, perm_map, hostname, dryrun, verbose):
 			print("[Error]: Detected GID (%d) and recorded GID (%d) do not match! %s"%(mode[ST_GID], old_gid, f))
 			continue;
 
-		if len(mids) > 2:
+		if len(mids) > 200:
 			cur.execute("UPDATE files SET changed='1' WHERE id IN ('" + "','".join((str(n) for n in mids)) + "')");
 			mids = []
 
@@ -211,51 +221,55 @@ def changeFilePerms(con, perm_map, hostname, dryrun, verbose):
 def main():
 
 	try:
-		opts, args = getopt.getopt(sys.argv[1:], 'd:g:vh:m:cC')
+		opts, args = getopt.getopt(sys.argv[1:], 'd:g:vh:m:cCD')
 	except getopt.GetoptError as err:
 		# print help information and exit:
 		print(str(err)) # will print something like "option -a not recognized"
-		print("Usage: \
- \
-Iterates through a list of files (-g) altering the UID and GID \
-of the file as shown in a map file (-m).  Each filename is \
-stored in a database with a flag of whether the permissions \
-have been changed.  This way a this script may be re-run to  \
-your heart's content without worry that permissions will get \
-continually changed (1000 to 1002, then 1002 to 1004, etc.) \
- \
-Original import permissions are also recorded, so this operation \
-is reversible. (not yet implemented) \
- \
-Steps, first use the script to load the files with -g.  Then use \
-it to actually perform the changes (-m and -c) \
- \
-	-g <file of files> \
-		Load list of files into DB, file is a list of files. \
- \
-	-v \
-		verbose \
- \
-	-d <db file> \
- \
-	-h <hostname> \
-		Default: %s \
- \
- 	-m <map file> \
- 		Map file of UID's. Each line should have the format 'UserOrGroup:OldUid=>NewUid'.  i.e. 'u:1000=>1002', or 'g:500=>678' \
-  \
-  	-c \
-  		Dry-run of permission changing \
-  \
-  	-C \
-  		Actually change permissions \
-"%(socket.gethostname()));
+		print("""
+Usage: 
+ 
+Iterates through a list of files (-g) altering the UID and GID 
+of the file as shown in a map file (-m).  Each filename is 
+stored in a database with a flag of whether the permissions 
+have been changed.  This way a this script may be re-run to  
+your heart's content without worry that permissions will get 
+continually changed (1000 to 1002, then 1002 to 1004, etc.) 
+ 
+Original import permissions are also recorded, so this operation 
+is reversible. (not yet implemented) 
+ 
+Steps, first use the script to load the files with -g.  Then use 
+it to actually perform the changes (-m and -c) 
+ 
+	-g <file of files> 
+		Load list of files into DB, file is a list of files. 
+ 
+	-D 
+		Debug mode, only operate on a small chunk of files at a time 
+	-v 
+		verbose 
+ 
+	-d <db file> 
+ 
+	-h <hostname> 
+		Default: %s 
+ 
+ 	-m <map file> 
+ 		Map file of UID's. Each line should have the format 'UserOrGroup:OldUid=>NewUid'.  i.e. 'u:1000=>1002', or 'g:500=>678' 
+  
+  	-c 
+  		Dry-run of permission changing 
+  
+  	-C 
+  		Actually change permissions 
+"""%(socket.gethostname()));
 		sys.exit(2)
 
 
 	file_db = 'files.db'
 	file_map = 'map.txt'
 	verbose = 0
+	debug = 0
 	perm_map = {}
 	hostname = socket.gethostname()
 	for o,a in opts:
@@ -263,6 +277,8 @@ it to actually perform the changes (-m and -c) \
 			file_db = a;
 		elif o == "-m":
 			perm_map = loadMap(a);
+		elif o == "-D":
+			debug = debug+1;
 		elif o == "-h":
 			hostname = a;
 		elif o == "-v":
@@ -290,11 +306,11 @@ it to actually perform the changes (-m and -c) \
 
 	for o,a in opts:
 		if o == "-g":
-			loadFiles(con, a, hostname);
+			loadFiles(con, a, hostname=hostname, verbose=verbose, debug=debug);
 		elif o == "-c":
-			changeFilePerms(con=con, perm_map=perm_map, hostname=hostname, dryrun=True, verbose=verbose)
+			changeFilePerms(con=con, perm_map=perm_map, hostname=hostname, dryrun=True, verbose=verbose, debug=debug)
 		elif o == "-C":
-			changeFilePerms(con=con, perm_map=perm_map, hostname=hostname, dryrun=False, verbose=verbose)
+			changeFilePerms(con=con, perm_map=perm_map, hostname=hostname, dryrun=False, verbose=verbose, debug=debug)
 		#else:
 		#	assert False, "unhandled option"
 
