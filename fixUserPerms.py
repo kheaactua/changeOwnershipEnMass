@@ -169,8 +169,8 @@ def changeFilePerms(con, perm_map, hostname, dryrun, verbose):
 			print("[Error]: Detected GID (%d) and recorded GID (%d) do not match! %s"%(mode[ST_GID], old_gid, f))
 			continue;
 
-		if len(mids) > 1000:
-			cur.execute("UPDATE files SET changed='1' WHERE id IN ('" + "','".join((str(n) for n in mids)) + "')", (mids,));
+		if len(mids) > 2:
+			cur.execute("UPDATE files SET changed='1' WHERE id IN ('" + "','".join((str(n) for n in mids)) + "')");
 			mids = []
 
 
