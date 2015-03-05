@@ -170,6 +170,9 @@ def changeFilePerms(con, perm_map, hostname, dryrun, verbose):
 				os.lchown(f, new_uid, new_gid)
 				cur.execute("UPDATE files SET new_uid=%d, new_gid=%d, changed='1'"%(new_uid, new_gid));
 				i=i+1;
+			except OSError as err:
+				print("[Error]: OSError thrown on %s\n"%f, err)
+				print("Continuing...")
 			except Exception as err:
 				print("Exception thrown on %s\n"%f, err)
 				print("\nAttempting to commit");
