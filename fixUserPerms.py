@@ -170,7 +170,7 @@ def changeFilePerms(con, perm_map, hostname, dryrun, verbose):
 			continue;
 
 		if len(mids) > 1000:
-			cur.execute("UPDATE files SET changed='1' WHERE id IN (?)", (mids,));
+			cur.execute("UPDATE files SET changed='1' WHERE id IN ('" + "','".join((str(n) for n in mids)) + "')", (mids,));
 			mids = []
 
 
