@@ -127,6 +127,7 @@ def changeFilePerms(con, perm_map, hostname, dryrun, verbose):
 
 	# Cache of manually modified IDs.. so them in batches to reduce DB load
 	mids=[];
+	cids=[];
 
 	cur.execute("SELECT id,file,old_uid,old_gid FROM files WHERE host='%s' AND changed='0'"%(host_ids[hostname]));
 	#print("SELECT id,file,old_uid,old_gid FROM files WHERE host='%s' AND changed='0'"%(host_ids[hostname]));
@@ -168,7 +169,7 @@ def changeFilePerms(con, perm_map, hostname, dryrun, verbose):
 			print("[Error]: Detected GID (%d) and recorded GID (%d) do not match! %s"%(mode[ST_GID], old_gid, f))
 			continue;
 
-		if mids.length > 1000:
+		if len(mids) > 1000:
 			cur.execute("UPDATE files SET changed='1' WHERE id in ?", (mids,));
 			mids = []
 
@@ -179,7 +180,7 @@ def changeFilePerms(con, perm_map, hostname, dryrun, verbose):
 		if dryrun is False:
 			try:
 				os.lchown(f, new_uid, new_gid)
-				cur.execute("UPDATE files SET new_uid=%d, new_gid=%d, changed='1'"%(new_uid, new_gid));
+				cur.execute("UPDATE files SET new_uid=?, new_gid=?, changed='1' WHERE id=?", (new_uid, new_gid, id));
 				i=i+1;
 			except OSError as err:
 				print("[Error]: OSError thrown on %s\n"%f, err)
