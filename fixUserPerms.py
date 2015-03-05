@@ -150,7 +150,16 @@ def changeFilePerms(con, perm_map, hostname, dryrun, verbose):
 		new_gid = perm_map['group'][str(old_gid)];
 
 		# Double check that the old_uid and old_gid are right, just as a further check
-		mode = os.stat(f)
+		try:
+			if os.path.isfile(f):
+				mode = os.stat(f)
+			else
+				print("[Warning]: File doesn't exist: %s"%f)
+				continue;
+		except OSError as err:
+			print("[Error]: OSError on %s"%f)
+			print(err)
+			continue;
 
 		if verbose:
 			print("[Debug]: {%d,%d} => {%d,%d} => {%d,%d} %s"%(old_uid,old_gid, mode[ST_UID],mode[ST_GID], new_uid,new_gid, f))
