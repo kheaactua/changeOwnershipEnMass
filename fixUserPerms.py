@@ -139,10 +139,13 @@ def changeFilePerms(con, perm_map, hostname, dryrun, verbose, debug):
 	mids=[];
 	cids=[];
 
-	cur.execute("SELECT id,file,old_uid,old_gid FROM files WHERE host=? AND changed='1'%s"%(' LIMIT 20' if debug else ''), (host_ids[hostname],1));
-	#print("SELECT id,file,old_uid,old_gid FROM files WHERE host='%s' AND changed='0'"%(host_ids[hostname]));
+	if verbose and debug:
+		print("SELECT id,file,old_uid,old_gid FROM files WHERE host=%d AND changed=%d %s"%(host_ids[hostname], 0, ' LIMIT 20' if debug else ''))
+	cur.execute("SELECT id,file,old_uid,old_gid FROM files WHERE host=? AND changed=? %s"%(' LIMIT 20' if debug else ''), (host_ids[hostname],0));
 	rows = cur.fetchall()
 	i=0;
+	if verbose:
+		print("Found %d files that require a permission change"%len(rows))
 	for row in rows:
 		f = row[1]
 		id = row[0]
@@ -151,10 +154,10 @@ def changeFilePerms(con, perm_map, hostname, dryrun, verbose, debug):
 
 		# Make sure we have a full map
 		if str(old_uid) not in perm_map['user']:
-			print("[Error]: No map for UID=%d!"%(old_uid))
+			print("[Error]: No map for UID=%d on f=%s"%(old_uid, f))
 			continue;
 		if str(old_gid) not in perm_map['group']:
-			print("[Error]: No map for GID=%d!"%(old_gid))
+			print("[Error]: No map for GID=%d on f=%s"%(old_gid, f))
 			continue;
 		new_uid = perm_map['user'][str(old_uid)];
 		new_gid = perm_map['group'][str(old_gid)];
@@ -188,10 +191,15 @@ def changeFilePerms(con, perm_map, hostname, dryrun, verbose, debug):
 			print("[Error]: Detected GID (%d) and recorded GID (%d) do not match! %s"%(mode[ST_GID], old_gid, f))
 			continue;
 
+		# This was done in an attempt to consolodate queries (even though they SHOULD
+		# be in a transaction.)  It probably simply adds complexity without adding any
+		# real speed advantage.  (when it was done, I had forgotton WHERE filters in
+		# all my queries, which explains the long run times.)
+		#
+		# If I get rid of this, also remove it after the for loop
 		if len(mids) > 200:
 			cur.execute("UPDATE files SET changed='1' WHERE id IN ('" + "','".join((str(n) for n in mids)) + "')");
 			mids = []
-
 
 		# Doing well if we got here
 		if verbose:
@@ -212,6 +220,13 @@ def changeFilePerms(con, perm_map, hostname, dryrun, verbose, debug):
 				print("Exiting...");
 				sys.exit(0)
 			
+
+	# Ensure the remainder are done.
+	if len(mids):
+		if debug:
+			print("UPDATE files SET changed='1' WHERE id IN ('" + "','".join((str(n) for n in mids)) + "')");
+		cur.execute("UPDATE files SET changed='1' WHERE id IN ('" + "','".join((str(n) for n in mids)) + "')");
+		mids = []
 
 	if dryrun is False:
 		print("\n%d files had their ownership updated."%i)
