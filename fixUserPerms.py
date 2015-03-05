@@ -125,6 +125,9 @@ def changeFilePerms(con, perm_map, hostname, dryrun, verbose):
 	#cur.execute("PRAGMA journal_mode = %s" %('OFF'))
 	# Not really sure of the consequences of this.
 
+	# Cache of manually modified IDs.. so them in batches to reduce DB load
+	mids=[];
+
 	cur.execute("SELECT id,file,old_uid,old_gid FROM files WHERE host='%s' AND changed='0'"%(host_ids[hostname]));
 	#print("SELECT id,file,old_uid,old_gid FROM files WHERE host='%s' AND changed='0'"%(host_ids[hostname]));
 	rows = cur.fetchall()
@@ -154,7 +157,8 @@ def changeFilePerms(con, perm_map, hostname, dryrun, verbose):
 		# Check to see if it was manually done
 		if mode[ST_UID] == new_uid and mode[ST_GID] == new_gid:
 			print("[Notice]: Seems that %s was manually modified. {%d,%d} => {%d,%d}"%(f, old_uid,old_gid, new_uid,new_gid))
-			cur.execute("UPDATE files SET changed='1'");
+			#cur.execute("UPDATE files SET changed='1' WHERE id=?", (id,));
+			mids.append(id)
 			continue;
 
 		if mode[ST_UID] != old_uid:
@@ -163,6 +167,10 @@ def changeFilePerms(con, perm_map, hostname, dryrun, verbose):
 		if mode[ST_GID] != old_gid:
 			print("[Error]: Detected GID (%d) and recorded GID (%d) do not match! %s"%(mode[ST_GID], old_gid, f))
 			continue;
+
+		if mids.length > 1000:
+			cur.execute("UPDATE files SET changed='1' WHERE id in ?", (mids,));
+			mids = []
 
 
 		# Doing well if we got here
