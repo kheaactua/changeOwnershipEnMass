@@ -124,6 +124,7 @@ def changeFilePerms(con, perm_map, hostname, dryrun, verbose):
 	cur.execute("SELECT id,file,old_uid,old_gid FROM files WHERE host='%s' AND changed='0'"%(host_ids[hostname]));
 	#print("SELECT id,file,old_uid,old_gid FROM files WHERE host='%s' AND changed='0'"%(host_ids[hostname]));
 	rows = cur.fetchall()
+	i=0;
 	for row in rows:
 		f = row[1]
 		id = row[0]
@@ -156,6 +157,7 @@ def changeFilePerms(con, perm_map, hostname, dryrun, verbose):
 			try:
 				os.lchown(f, new_uid, new_gid)
 				cur.execute("UPDATE files SET new_uid=%d, new_gid=%d, changed='1'"%(new_uid, new_gid));
+				i=i+1;
 			except Exception as err:
 				print("Exception thrown on %s\n"%f, err)
 				print("\nAttempting to commit");
@@ -166,6 +168,7 @@ def changeFilePerms(con, perm_map, hostname, dryrun, verbose):
 			
 
 	if dryrun is False:
+		print("\n%d files had their ownership updated."%i)
 		con.commit();
 
 
