@@ -121,8 +121,8 @@ def changeFilePerms(con, perm_map, hostname, dryrun, verbose):
 	cur = con.cursor()
 
 	# Maybe this will improve speed
-	cur.execute("PRAGMA synchronous = OFF")
-	cur.execute("PRAGMA journal_mode = %s" %('OFF'))
+	#cur.execute("PRAGMA synchronous = OFF")
+	#cur.execute("PRAGMA journal_mode = %s" %('OFF'))
 	# Not really sure of the consequences of this.
 
 	cur.execute("SELECT id,file,old_uid,old_gid FROM files WHERE host='%s' AND changed='0'"%(host_ids[hostname]));
@@ -135,15 +135,6 @@ def changeFilePerms(con, perm_map, hostname, dryrun, verbose):
 		old_uid = int(row[2])
 		old_gid = int(row[3])
 
-		# Double check that the old_uid and old_gid are right, just as a further check
-		mode = os.stat(f)
-		if mode[ST_UID] != old_uid:
-			print("[Error]: Detected UID (%d) and recorded UID (%d) do not match! %s"%(mode[ST_UID], old_uid, f))
-			continue;
-		if mode[ST_GID] != old_gid:
-			print("[Error]: Detected GID (%d) and recorded GID (%d) do not match! %s"%(mode[ST_GID], old_gid, f))
-			continue;
-
 		# Make sure we have a full map
 		if str(old_uid) not in perm_map['user']:
 			print("[Error]: No map for UID=%d!"%(old_uid))
@@ -153,6 +144,23 @@ def changeFilePerms(con, perm_map, hostname, dryrun, verbose):
 			continue;
 		new_uid = perm_map['user'][str(old_uid)];
 		new_gid = perm_map['group'][str(old_gid)];
+
+		# Double check that the old_uid and old_gid are right, just as a further check
+		mode = os.stat(f)
+
+		# Check to see if it was manually done
+		if mode[ST_UID] == new_uid and mode[ST_GID] == new_gid:
+			print("[Notice]: Seems that %s was manually modified"%(f))
+			cur.execute("UPDATE files SET changed='1'");
+			continue;
+
+		if mode[ST_UID] != old_uid:
+			print("[Error]: Detected UID (%d) and recorded UID (%d) do not match! %s"%(mode[ST_UID], old_uid, f))
+			continue;
+		if mode[ST_GID] != old_gid:
+			print("[Error]: Detected GID (%d) and recorded GID (%d) do not match! %s"%(mode[ST_GID], old_gid, f))
+			continue;
+
 
 		# Doing well if we got here
 		if verbose:
