@@ -3,7 +3,7 @@
 from __future__ import print_function
 
 import sqlite3 as lite
-import os, sys
+import os, sys, signal
 from stat import *
 import getopt
 import socket
@@ -125,6 +125,8 @@ def loadMap(file_map):
 	return {'user': map_user, 'group': map_group}
 
 def changeFilePerms(con, perm_map, hostname, dryrun, verbose, debug):
+	debug_limit=200
+
 	# Cache host map
 	host_ids = getHostCache(con)
 
@@ -140,96 +142,109 @@ def changeFilePerms(con, perm_map, hostname, dryrun, verbose, debug):
 	cids=[];
 
 	if verbose and debug:
-		print("SELECT id,file,old_uid,old_gid FROM files WHERE host=%d AND changed=%d %s"%(host_ids[hostname], 0, ' LIMIT 20' if debug else ''))
-	cur.execute("SELECT id,file,old_uid,old_gid FROM files WHERE host=? AND changed=? %s"%(' LIMIT 20' if debug else ''), (host_ids[hostname],0));
+		print("SELECT id,file,old_uid,old_gid FROM files WHERE host=%d AND changed=%d %s"%(host_ids[hostname], 0, (' LIMIT %d'%debug_limit) if debug else ''))
+	cur.execute("SELECT id,file,old_uid,old_gid FROM files WHERE host=? AND changed=? %s"%((' LIMIT %d'%debug_limit) if debug else ''), (host_ids[hostname],0));
 	rows = cur.fetchall()
 	i=0;
 	if verbose:
 		print("Found %d files that require a permission change"%len(rows))
-	for row in rows:
-		f = row[1]
-		id = row[0]
-		old_uid = int(row[2])
-		old_gid = int(row[3])
 
-		# Make sure we have a full map
-		if str(old_uid) not in perm_map['user']:
-			print("[Error]: No map for UID=%d on f=%s"%(old_uid, f))
-			continue;
-		if str(old_gid) not in perm_map['group']:
-			print("[Error]: No map for GID=%d on f=%s"%(old_gid, f))
-			continue;
-		new_uid = perm_map['user'][str(old_uid)];
-		new_gid = perm_map['group'][str(old_gid)];
+	try:
+		for row in rows:
+			f = row[1]
+			id = row[0]
+			old_uid = int(row[2])
+			old_gid = int(row[3])
 
-		# Double check that the old_uid and old_gid are right, just as a further check
-		try:
-			if os.path.isfile(f):
-				mode = os.stat(f)
-			else:
-				print("[Warning]: File doesn't exist: %s"%f)
+			# Make sure we have a full map
+			if str(old_uid) not in perm_map['user']:
+				print("[Error]: No map for UID=%d on f=%s"%(old_uid, f))
 				continue;
-		except OSError as err:
-			print("[Error]: OSError on %s"%f)
-			print(err)
-			continue;
+			if str(old_gid) not in perm_map['group']:
+				print("[Error]: No map for GID=%d on f=%s"%(old_gid, f))
+				continue;
+			new_uid = perm_map['user'][str(old_uid)];
+			new_gid = perm_map['group'][str(old_gid)];
 
-		if verbose:
-			print("[Debug]: {%d,%d} => {%d,%d} => {%d,%d} %s"%(old_uid,old_gid, mode[ST_UID],mode[ST_GID], new_uid,new_gid, f))
+			# Double check that the old_uid and old_gid are right, just as a further check
+			try:
+				if os.path.isfile(f):
+					mode = os.stat(f)
+				else:
+					print("[Warning]: File doesn't exist: %s"%f)
+					cur.execute('DELETE FROM files WHERE id=?', (id,))
+					#con.commit();
+					continue;
+			except OSError as err:
+				print("[Error]: OSError on %s"%f)
+				print(err)
+				continue;
 
-		# Check to see if it was manually done
-		if mode[ST_UID] == new_uid and mode[ST_GID] == new_gid:
-			print("[Notice]: Seems that %s was manually modified. {%d,%d} => {%d,%d}"%(f, old_uid,old_gid, new_uid,new_gid))
-			#cur.execute("UPDATE files SET changed='1' WHERE id=?", (id,));
-			mids.append(id)
-			continue;
+			if verbose:
+				print("[Debug]: {%d,%d} => {%d,%d} => {%d,%d} %s"%(old_uid,old_gid, mode[ST_UID],mode[ST_GID], new_uid,new_gid, f))
 
-		if mode[ST_UID] != old_uid:
-			print("[Error]: Detected UID (%d) and recorded UID (%d) do not match! %s"%(mode[ST_UID], old_uid, f))
-			continue;
-		if mode[ST_GID] != old_gid:
-			print("[Error]: Detected GID (%d) and recorded GID (%d) do not match! %s"%(mode[ST_GID], old_gid, f))
-			continue;
+			# Check to see if it was manually done
+			if mode[ST_UID] == new_uid and mode[ST_GID] == new_gid:
+				if verbose or debug:
+					print("[Notice]: Seems that %s was manually modified. {%d,%d} => {%d,%d}"%(f, old_uid,old_gid, new_uid,new_gid))
+				#cur.execute("UPDATE files SET changed='1' WHERE id=?", (id,));
+				mids.append(id)
 
-		# This was done in an attempt to consolodate queries (even though they SHOULD
-		# be in a transaction.)  It probably simply adds complexity without adding any
-		# real speed advantage.  (when it was done, I had forgotton WHERE filters in
-		# all my queries, which explains the long run times.)
-		#
-		# If I get rid of this, also remove it after the for loop
-		if len(mids) > 200:
+				# This was done in an attempt to consolodate queries (even though they SHOULD
+				# be in a transaction.)  It probably simply adds complexity without adding any
+				# real speed advantage.  (when it was done, I had forgotton WHERE filters in
+				# all my queries, which explains the long run times.)
+				#
+				# If I get rid of this, also remove it after the for loop
+				if len(mids) > debug_limit:
+					#if debug:
+					#	print("[1] UPDATE files SET changed='1' WHERE id IN ('" + "','".join((str(n) for n in mids)) + "')");
+					cur.execute("UPDATE files SET changed='1' WHERE id IN ('" + "','".join((str(n) for n in mids)) + "')");
+					mids = []
+
+				continue;
+
+			if mode[ST_UID] != old_uid:
+				print("[Error]: Detected UID (%d) and recorded UID (%d) do not match! %s"%(mode[ST_UID], old_uid, f))
+				continue;
+			if mode[ST_GID] != old_gid:
+				print("[Error]: Detected GID (%d) and recorded GID (%d) do not match! %s"%(mode[ST_GID], old_gid, f))
+				continue;
+
+
+			# Doing well if we got here
+			if verbose:
+				print("[UID:%d=>%d,GID:%d=>%d] chown %d:%d %s"%(old_uid,new_uid, old_gid,new_gid, new_uid,new_gid, f))
+			if dryrun is False:
+				try:
+					os.lchown(f, new_uid, new_gid)
+					cur.execute("UPDATE files SET new_uid=?, new_gid=?, changed='1' WHERE id=?", (new_uid, new_gid, id));
+					i=i+1;
+				except OSError as err:
+					print("[Error]: OSError thrown on %s\n"%f, err)
+					print("Continuing...")
+				except Exception as err:
+					print("Exception thrown on %s\n"%f, err)
+					print("\nAttempting to commit");
+	
+					con.commit()
+					print("Exiting...");
+					sys.exit(0)
+				
+
+		# Ensure the remainder are done.
+		if len(mids):
+			if debug:
+				print(("[2:%d:%d] UPDATE files SET changed='1' WHERE id IN ('"%(len(mids),i)) + "','".join((str(n) for n in mids)) + "')");
 			cur.execute("UPDATE files SET changed='1' WHERE id IN ('" + "','".join((str(n) for n in mids)) + "')");
 			mids = []
 
-		# Doing well if we got here
-		if verbose:
-			print("[UID:%d=>%d,GID:%d=>%d] chown %d:%d %s"%(old_uid,new_uid, old_gid,new_gid, new_uid,new_gid, f))
 		if dryrun is False:
-			try:
-				os.lchown(f, new_uid, new_gid)
-				cur.execute("UPDATE files SET new_uid=?, new_gid=?, changed='1' WHERE id=?", (new_uid, new_gid, id));
-				i=i+1;
-			except OSError as err:
-				print("[Error]: OSError thrown on %s\n"%f, err)
-				print("Continuing...")
-			except Exception as err:
-				print("Exception thrown on %s\n"%f, err)
-				print("\nAttempting to commit");
-
-				con.commit()
-				print("Exiting...");
-				sys.exit(0)
-			
-
-	# Ensure the remainder are done.
-	if len(mids):
-		if debug:
-			print("UPDATE files SET changed='1' WHERE id IN ('" + "','".join((str(n) for n in mids)) + "')");
-		cur.execute("UPDATE files SET changed='1' WHERE id IN ('" + "','".join((str(n) for n in mids)) + "')");
-		mids = []
-
-	if dryrun is False:
-		print("\n%d files had their ownership updated."%i)
+			print("\n%d files had their ownership updated."%i)
+			#con.commit();
+		con.commit();
+	except KeyboardInterrupt:
+		print("Received CTRL-C, commiting and exiting");
 		con.commit();
 
 
@@ -329,12 +344,8 @@ it to actually perform the changes (-m and -c)
 		#else:
 		#	assert False, "unhandled option"
 
-
-
-#		
-#		if con:
-#			con.close()
-
+	if con:
+		con.close()
 
 if __name__ == "__main__":
 	main()
